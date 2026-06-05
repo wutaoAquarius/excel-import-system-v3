@@ -220,6 +220,9 @@ function extractMatrix(rows: (string | null)[][], config: MatrixExtraction): Ext
       // 转置列头作为目标字段
       record[`pivot_header`] = pivotHeaders[p] ?? null;
       record[`pivot_value`] = value;
+      // 兼容columnName source类型
+      record[`name_pivot_header`] = pivotHeaders[p] ?? null;
+      record[`name_pivot_value`] = value;
       result.push(record);
     }
   }
