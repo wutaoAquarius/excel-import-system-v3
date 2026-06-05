@@ -21,7 +21,22 @@ export function parseExcel(buffer: Buffer): RawFileData {
         const cell = worksheet[cellAddress];
         row.push(cell ? String(cell.v ?? '') : null);
       }
-      rows.push(row);
+        rows.push(row);
+    }
+
+    // 处理合并单元格 - 将主单元格的值填充到合并区域的所有格子
+    const merges = worksheet['!merges'] || [];
+    for (const merge of merges) {
+      const mainCell = worksheet[XLSX.utils.encode_cell({ r: merge.s.r, c: merge.s.c })];
+      const mainValue = mainCell ? String(mainCell.v ?? '') : null;
+      for (let r = merge.s.r; r <= merge.e.r; r++) {
+        for (let c = merge.s.c; c <= merge.e.c; c++) {
+          if (r === merge.s.r && c === merge.s.c) continue; // 跳过主格本身
+          if (r - range.s.r >= 0 && r - range.s.r < rows.length) {
+            rows[r - range.s.r][c - range.s.c] = mainValue;
+          }
+        }
+      }
     }
     
     return { name, rows };

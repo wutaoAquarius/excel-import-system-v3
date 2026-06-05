@@ -40,8 +40,8 @@ export async function parseFile(
       return parsePDF(buf);
     }
     case 'docx': {
-      // Word解析暂未实现（缺少demo文件）
-      return { type: 'word', text: '' };
+      const { parseWord } = await import('./word-parser');
+      return parseWord(buf);
     }
     default:
       throw new Error(`不支持的文件格式: .${ext}`);

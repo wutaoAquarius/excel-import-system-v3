@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { Upload, Button, Card, Select, Space, message, Progress, Alert } from 'antd';
+import Link from 'next/link';
 import { InboxOutlined, RobotOutlined, ThunderboltOutlined, DownloadOutlined, SendOutlined } from '@ant-design/icons';
 import EditableTable from '@/components/EditableTable';
 import type { WaybillRecord } from '@/lib/rules';
@@ -21,6 +22,8 @@ export default function ImportPage() {
   const [progress, setProgress] = useState(0);
   const [aiLoading, setAiLoading] = useState(false);
   const [submitResult, setSubmitResult] = useState<{ successCount: number; failCount: number } | null>(null);
+  const [parseFailed, setParseFailed] = useState(false);
+  const validateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadRules = useCallback(async () => {
     try {
@@ -50,7 +53,7 @@ export default function ImportPage() {
     if (!fileData || !selectedRuleId) { message.warning('请先选择规则'); return; }
     const rule = rulesList.find((r) => r.id === selectedRuleId);
     if (!rule) return;
-    setLoading(true); setProgress(20);
+    setLoading(true); setProgress(20); setParseFailed(false);
     try {
       const res = await fetch('/api/parse', {
         method: 'POST',
@@ -59,10 +62,10 @@ export default function ImportPage() {
       });
       setProgress(80);
       const json = await res.json();
-      if (json.error) { message.error(json.error); return; }
+      if (json.error) { message.error(json.error); setParseFailed(true); return; }
       setRecords(json.data.records); setStep('preview'); setProgress(100);
       message.success(`解析完成，共${json.data.totalCount}条记录`);
-    } catch { message.error('解析失败'); } finally { setLoading(false); }
+    } catch { message.error('解析失败'); setParseFailed(true); } finally { setLoading(false); }
   }, [fileData, selectedRuleId, rulesList]);
 
   const handleAiGenerate = useCallback(async () => {
@@ -93,13 +96,14 @@ export default function ImportPage() {
 
   const handleSubmit = useCallback(async () => {
     if (Object.keys(errors).length > 0) { message.error('请先修正错误数据'); return; }
-    setLoading(true);
+    setLoading(true); setProgress(0);
     try {
       const res = await fetch('/api/orders/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ records, fileName: fileData?.summary.fileName, ruleId: selectedRuleId }),
       });
+      setProgress(100);
       const json = await res.json();
       if (json.error) { message.error(json.error); return; }
       setSubmitResult(json.data); setStep('submitted');
@@ -129,12 +133,27 @@ export default function ImportPage() {
       if (r.receiverPhone && !/^1\d{10}$/.test(r.receiverPhone)) rowErr.receiverPhone = '电话格式不正确';
       if (Object.keys(rowErr).length > 0) errs[i] = rowErr;
     });
+    // 批次内重复检测
+    const externalCodeCount: Record<string, number[]> = {};
+    data.forEach((r, i) => {
+      if (r.externalCode) {
+        if (!externalCodeCount[r.externalCode]) externalCodeCount[r.externalCode] = [];
+        externalCodeCount[r.externalCode].push(i);
+      }
+    });
+    Object.values(externalCodeCount).filter(indices => indices.length > 1).forEach(indices => {
+      indices.forEach(i => {
+        if (!errs[i]) errs[i] = {};
+        errs[i].externalCode = '外部编码在本批次中重复';
+      });
+    });
     setErrors(errs);
   }, []);
 
   const handleDataChange = useCallback((newData: WaybillRecord[]) => {
     setRecords(newData);
-    validate(newData);
+    if (validateTimer.current) clearTimeout(validateTimer.current);
+    validateTimer.current = setTimeout(() => validate(newData), 300);
   }, [validate]);
 
   return (
@@ -162,9 +181,26 @@ export default function ImportPage() {
             </div>
             <Button type="primary" icon={<ThunderboltOutlined />} onClick={handleParse} disabled={!selectedRuleId} loading={loading}>执行解析</Button>
             <Button icon={<RobotOutlined />} onClick={handleAiGenerate} loading={aiLoading}>AI生成规则</Button>
+            <Link href="/rules"><Button>管理规则</Button></Link>
           </div>
+          {parseFailed && (
+            <Alert
+              type="warning"
+              className="mt-4"
+              message="解析失败"
+              description={
+                <div className="text-sm">
+                  <p>文件名：{fileData.summary.fileName}</p>
+                  <p>文件类型：{fileData.summary.fileType}</p>
+                  <p>数据行数：{fileData.summary.rowsCount}</p>
+                  <p className="mt-2">请检查规则配置是否与文件格式匹配，或前往规则管理页面调整。</p>
+                  <Link href="/rules"><Button size="small" className="mt-2">前往规则管理</Button></Link>
+                </div>
+              }
+            />
+          )}
           {loading && <Progress percent={progress} className="mt-4" strokeColor="#0fc6c2" />}
-          <Button type="link" className="mt-2 p-0" onClick={() => { setStep('upload'); setFileData(null); }}>← 重新上传</Button>
+          <Button type="link" className="mt-2 p-0" onClick={() => { setStep('upload'); setFileData(null); setParseFailed(false); }}>← 重新上传</Button>
         </Card>
       )}
 
@@ -178,11 +214,36 @@ export default function ImportPage() {
                 <span className="text-sm text-gray-500">{fileData?.summary.fileName}</span>
               </Space>
               <Space>
-                {Object.keys(errors).length > 0 && <Alert message={`${Object.keys(errors).length}行有错误`} type="error" banner className="!py-1" />}
                 <Button icon={<DownloadOutlined />} onClick={handleExport}>导出Excel</Button>
                 <Button type="primary" icon={<SendOutlined />} onClick={handleSubmit} disabled={Object.keys(errors).length > 0} loading={loading}>提交下单</Button>
               </Space>
             </div>
+            {loading && (
+              <Progress
+                percent={progress}
+                className="mb-4"
+                strokeColor="#0fc6c2"
+                format={(p) => fileData ? `处理中 ${Math.round(((p ?? 0) / 100) * fileData.summary.rowsCount)}/${fileData.summary.rowsCount}条` : `${p}%`}
+              />
+            )}
+            {Object.keys(errors).length > 0 && (
+              <Alert
+                type="error"
+                className="mb-4"
+                message={`${Object.keys(errors).length}行有错误`}
+                description={
+                  <div className="max-h-32 overflow-auto text-xs mt-1">
+                    {Object.entries(errors).map(([rowIdx, fields]) => (
+                      <div key={rowIdx}>
+                        {Object.entries(fields).map(([field, msg]) => (
+                          <div key={`${rowIdx}-${field}`}>第{Number(rowIdx) + 1}行 [{field}]: {msg}</div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                }
+              />
+            )}
             <EditableTable data={records} onChange={handleDataChange} errors={errors} />
           </Card>
         </>

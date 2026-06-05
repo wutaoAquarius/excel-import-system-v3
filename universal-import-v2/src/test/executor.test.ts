@@ -150,11 +150,13 @@ describe('规则引擎执行器 - executeRule', () => {
       preprocessing: [
         { type: 'skipRows', count: 2 },
       ],
-      dataExtraction: { mode: 'text' },
+      dataExtraction: { mode: 'text', linePatterns: [
+        { pattern: '(SKU\\d+)\\s+(\\S+)\\s+(\\d+)', captures: [{ group: 1, target: 'skuCode' }, { group: 2, target: 'skuName' }, { group: 3, target: 'skuQuantity' }] },
+      ] },
       fieldMapping: [
-        { target: 'skuName', source: { type: 'regex', pattern: '(SKU\\d+)\\s+(\\S+)\\s+(\\d+)', group: 2 } },
-        { target: 'skuCode', source: { type: 'regex', pattern: '(SKU\\d+)\\s+(\\S+)\\s+(\\d+)', group: 1 } },
-        { target: 'skuQuantity', source: { type: 'regex', pattern: '(SKU\\d+)\\s+(\\S+)\\s+(\\d+)', group: 3 }, transform: [{ type: 'toNumber' }] },
+        { target: 'skuName', source: { type: 'columnName', name: 'skuName' } },
+        { target: 'skuCode', source: { type: 'columnName', name: 'skuCode' } },
+        { target: 'skuQuantity', source: { type: 'columnName', name: 'skuQuantity' }, transform: [{ type: 'toNumber' }] },
       ],
       postprocessing: [
         { type: 'filterEmpty', requiredFields: ['skuCode', 'skuName'] },
@@ -173,7 +175,7 @@ describe('规则引擎执行器 - executeRule', () => {
       const rule: RuleConfig = {
         fileType: 'word',
         preprocessing: [],
-        dataExtraction: { mode: 'text' },
+        dataExtraction: { mode: 'text', linePatterns: [] },
         fieldMapping: [],
         postprocessing: [],
       };

@@ -16,6 +16,8 @@ import type {
   MatrixExtraction,
   GroupedExtraction,
   CardExtraction,
+  TextExtraction,
+  CardSplitStep,
 } from './config';
 
 export function executeRule(rawData: RawFileData, rule: RuleConfig): WaybillRecord[] {
@@ -44,6 +46,34 @@ function executeExcelRule(sheets: RawSheetData[], rule: RuleConfig): WaybillReco
       if (result.footerData) {
         footerData = { ...footerData, ...result.footerData };
       }
+    }
+
+    // cardSplit 多卡片拆分
+    const cardSplitStep = rule.preprocessing.find(
+      (s): s is CardSplitStep => s.type === 'cardSplit'
+    );
+    if (cardSplitStep && rule.dataExtraction.mode === 'card') {
+      // 按 __boundary__ 标记将 rows 拆分为多个子数组
+      const cards: (string | null)[][][] = [];
+      let current: (string | null)[][] = [];
+      for (const row of rows) {
+        if (row[0] === '__boundary__') {
+          if (current.length > 0) cards.push(current);
+          current = [];
+        } else {
+          current.push(row);
+        }
+      }
+      if (current.length > 0) cards.push(current);
+
+      for (const cardRows of cards) {
+        const extracted = extractCard(cardRows, rule.dataExtraction);
+        const records = extracted.map((row) =>
+          mapFields(row, rule.fieldMapping, footerData)
+        );
+        allRecords.push(...records);
+      }
+      continue;
     }
 
     // 数据提取
@@ -76,6 +106,34 @@ function executePdfRule(pages: string[], rule: RuleConfig): WaybillRecord[] {
     if (result.footerData) {
       footerData = { ...footerData, ...result.footerData };
     }
+  }
+
+  // PDF 多单拆分：有 cardSplit 时按 __boundary__ 标记分段处理
+  const cardSplitStep = rule.preprocessing.find(
+    (s): s is CardSplitStep => s.type === 'cardSplit'
+  );
+  if (cardSplitStep) {
+    const segments: (string | null)[][][] = [];
+    let current: (string | null)[][] = [];
+    for (const row of processedRows) {
+      if (row[0] === '__boundary__') {
+        if (current.length > 0) segments.push(current);
+        current = [];
+      } else {
+        current.push(row);
+      }
+    }
+    if (current.length > 0) segments.push(current);
+
+    const allRecords: WaybillRecord[] = [];
+    for (const segRows of segments) {
+      const extracted = extractData(segRows, rule.dataExtraction);
+      const records = extracted.map((row) =>
+        mapFields(row, rule.fieldMapping, footerData)
+      );
+      allRecords.push(...records);
+    }
+    return applyPostprocess(allRecords, rule.postprocessing);
   }
 
   const extracted = extractData(processedRows, rule.dataExtraction);
@@ -126,9 +184,25 @@ function applyPreprocess(rows: (string | null)[][], step: PreprocessStep): Prepr
       return { rows: rows.slice(0, startRow), footerData };
     }
 
-    case 'cardSplit':
-      // cardSplit在extractData中处理
-      return { rows };
+    case 'cardSplit': {
+      // 在每行第一列打上 __boundary__ 标记，供 executeExcelRule/executePdfRule 使用
+      const marked = rows.map((row) => {
+        const cell = row[0] ?? '';
+        let isBoundary = false;
+        if (step.matchMode === 'startsWith') {
+          isBoundary = cell.startsWith(step.boundary);
+        } else if (step.matchMode === 'contains') {
+          isBoundary = cell.includes(step.boundary);
+        } else if (step.matchMode === 'regex') {
+          isBoundary = new RegExp(step.boundary).test(cell);
+        }
+        if (isBoundary) {
+          return ['__boundary__', ...row.slice(1)];
+        }
+        return row;
+      });
+      return { rows: marked };
+    }
 
     case 'filterEmptyRows': {
       const minNonEmpty = step.minNonEmpty ?? 1;
@@ -157,7 +231,7 @@ function extractData(rows: (string | null)[][], config: DataExtractionConfig): E
     case 'matrix': return extractMatrix(rows, config);
     case 'grouped': return extractGrouped(rows, config);
     case 'card': return extractCard(rows, config);
-    case 'text': return extractText(rows);
+    case 'text': return extractText(rows, config);
     default: return [];
   }
 }
@@ -231,17 +305,69 @@ function extractMatrix(rows: (string | null)[][], config: MatrixExtraction): Ext
 
 function extractGrouped(rows: (string | null)[][], config: GroupedExtraction): ExtractedRow[] {
   const headers = rows[config.headerRow]?.map((h) => h?.trim() || '') || [];
-  const result: ExtractedRow[] = [];
+
+  // 第一遍：按 groupByCol 分组，空值行继承上一行 groupKey
+  type GroupEntry = { key: string; rowIndices: number[] };
+  const groups: GroupEntry[] = [];
+  const groupIndexMap = new Map<string, number>();
+  let lastKey = '';
 
   for (let i = config.dataStartRow; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.every((c) => !c || !c.trim())) continue;
-    const record: ExtractedRow = {};
-    headers.forEach((h, idx) => {
-      record[`col_${idx}`] = row[idx] ?? null;
-      if (h) record[`name_${h}`] = row[idx] ?? null;
+    const cellVal = row[config.groupByCol]?.trim() || '';
+    const key = cellVal || lastKey;
+    if (!key) continue;
+    if (cellVal) lastKey = cellVal;
+
+    if (!groupIndexMap.has(key)) {
+      groupIndexMap.set(key, groups.length);
+      groups.push({ key, rowIndices: [] });
+    }
+    groups[groupIndexMap.get(key)!].rowIndices.push(i);
+  }
+
+  // 第二遍：组内提取，sharedFields 取组内第一行，广播到所有行
+  const result: ExtractedRow[] = [];
+
+  for (const group of groups) {
+    // 收集组内所有行的基础字段
+    const groupRows: ExtractedRow[] = group.rowIndices.map((i) => {
+      const row = rows[i];
+      const record: ExtractedRow = {};
+      headers.forEach((h, idx) => {
+        record[`col_${idx}`] = row[idx] ?? null;
+        if (h) record[`name_${h}`] = row[idx] ?? null;
+      });
+      return record;
     });
-    result.push(record);
+
+    // 从第一行解析 sharedFields（用 mapFields 替代逻辑，直接读取源列）
+    const sharedValues: ExtractedRow = {};
+    for (const mapping of config.sharedFields) {
+      const firstRow = groupRows[0];
+      if (!firstRow) continue;
+      const src = mapping.source;
+      let val: string | null = null;
+      if (src.type === 'column') {
+        val = firstRow[`col_${src.index}`] ?? null;
+      } else if (src.type === 'columnName') {
+        val = firstRow[`name_${src.name}`] ?? null;
+      } else if (src.type === 'fixed') {
+        val = src.value;
+      }
+      if (val !== null) {
+        sharedValues[`shared_${mapping.target}`] = val;
+      }
+    }
+
+    // 将 sharedValues 广播到组内所有行
+    for (const record of groupRows) {
+      for (const [k, v] of Object.entries(sharedValues)) {
+        record[k] = v;
+      }
+      result.push(record);
+    }
   }
   return result;
 }
@@ -270,9 +396,53 @@ function extractCard(rows: (string | null)[][], config: CardExtraction): Extract
   return result;
 }
 
-function extractText(rows: (string | null)[][]): ExtractedRow[] {
-  // 文本模式：每行作为一条记录的原始文本
-  return rows.map((row) => ({ raw_text: row[0] ?? null }));
+function extractText(rows: (string | null)[][], config: TextExtraction): ExtractedRow[] {
+  // 将 rows 转为文本行数组
+  const lines = rows.map((row) => row[0] ?? '');
+  const fullText = lines.join('\n');
+
+  const result: ExtractedRow[] = [];
+
+  if (config.separator) {
+    // 有分隔符：按 separator 拆分记录块，每块一条记录
+    const blocks = fullText.split(config.separator).map((b) => b.trim()).filter((b) => b.length > 0);
+    for (const block of blocks) {
+      const record: ExtractedRow = {};
+      const blockLines = block.split('\n');
+      for (const lp of config.linePatterns) {
+        const re = new RegExp(lp.pattern);
+        for (const line of blockLines) {
+          const match = line.match(re);
+          if (match) {
+            for (const cap of lp.captures) {
+              const val = match[cap.group] ?? null;
+              if (val !== null) record[`name_${cap.target}`] = val.trim();
+            }
+            break;
+          }
+        }
+      }
+      if (Object.keys(record).length > 0) result.push(record);
+    }
+  } else {
+    // 无分隔符：逐行匹配，每行独立生成记录
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const record: ExtractedRow = {};
+      for (const lp of config.linePatterns) {
+        const re = new RegExp(lp.pattern);
+        const match = line.match(re);
+        if (match) {
+          for (const cap of lp.captures) {
+            const val = match[cap.group] ?? null;
+            if (val !== null) record[`name_${cap.target}`] = val.trim();
+          }
+        }
+      }
+      if (Object.keys(record).length > 0) result.push(record);
+    }
+  }
+  return result;
 }
 
 // ===== 字段映射 =====

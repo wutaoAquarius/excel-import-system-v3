@@ -26,6 +26,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 检查文件大小（50MB限制）
+    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: `文件大小超过限制（最大50MB），当前: ${(file.size / 1024 / 1024).toFixed(1)}MB` },
+        { status: 400 }
+      );
+    }
+
     // 读取文件为buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);

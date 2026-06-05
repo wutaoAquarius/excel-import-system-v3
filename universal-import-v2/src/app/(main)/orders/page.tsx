@@ -12,16 +12,21 @@ export default function OrdersPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState('');
+  const [dateRange, setDateRange] = useState<[string, string] | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: '20', keyword });
+      if (dateRange) {
+        params.set('startDate', dateRange[0]);
+        params.set('endDate', dateRange[1]);
+      }
       const res = await fetch(`/api/orders?${params}`);
       const json = await res.json();
       if (json.data) { setData(json.data.records); setTotal(json.data.total); }
     } catch { /* ignore */ } finally { setLoading(false); }
-  }, [page, keyword]);
+  }, [page, keyword, dateRange]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -41,6 +46,13 @@ export default function OrdersPage() {
     <Card title="已导入运单" className="shadow-sm" extra={
       <Space>
         <Input placeholder="搜索外部编码/收件人" prefix={<SearchOutlined />} allowClear value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} style={{ width: 250 }} />
+        <DatePicker.RangePicker
+          onChange={(_, dateStrings) => {
+            const [start, end] = dateStrings;
+            setDateRange(start && end ? [start, end] : null);
+            setPage(1);
+          }}
+        />
       </Space>
     }>
       <Table dataSource={data} columns={columns} rowKey="id" loading={loading} scroll={{ x: 1200 }} pagination={{ current: page, total, pageSize: 20, onChange: setPage, showTotal: (t) => `共 ${t} 条` }} />
