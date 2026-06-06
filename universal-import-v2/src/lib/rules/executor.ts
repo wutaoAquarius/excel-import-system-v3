@@ -454,21 +454,42 @@ function extractText(rows: (string | null)[][], config: TextExtraction): Extract
       if (Object.keys(record).length > 0) result.push(record);
     }
   } else {
-    // 无分隔符：逐行匹配，每行独立生成记录
+    // 无分隔符：两轮匹配
+    // 第一轮：收集所有匹配，分为数据记录和全局字段
+    const dataRecords: ExtractedRow[] = [];
+    const globalFields: ExtractedRow = {};
+
     for (const line of lines) {
       if (!line.trim()) continue;
       const record: ExtractedRow = {};
+      let matched = false;
       for (const lp of config.linePatterns) {
         const re = new RegExp(lp.pattern);
         const match = line.match(re);
         if (match) {
+          matched = true;
           for (const cap of lp.captures) {
             const val = match[cap.group] ?? null;
             if (val !== null) record[`name_${cap.target}`] = val.trim();
           }
+          break; // 每行只匹配第一个pattern
         }
       }
-      if (Object.keys(record).length > 0) result.push(record);
+      if (!matched || Object.keys(record).length === 0) continue;
+      // 含有 skuCode 或 skuName 的是数据记录，否则是全局字段
+      if (record['name_skuCode'] || record['name_skuName']) {
+        dataRecords.push(record);
+      } else {
+        Object.assign(globalFields, record);
+      }
+    }
+
+    // 将全局字段广播到所有数据记录
+    for (const rec of dataRecords) {
+      for (const [k, v] of Object.entries(globalFields)) {
+        if (!rec[k]) rec[k] = v;
+      }
+      result.push(rec);
     }
   }
   return result;

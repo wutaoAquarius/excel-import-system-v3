@@ -183,33 +183,39 @@ export const multiSheetRule: RuleConfig = {
 // 6. 黔寨寨PDF配送单
 export const qianZhaiZhaiRule: RuleConfig = {
   fileType: 'pdf',
-  preprocessing: [
-    { type: 'skipRows', count: 7 }, // 跳过头部元信息
-    {
-      type: 'extractFooter',
-      startRow: 'afterData',
-      fields: [
-        { target: 'receiverName', row: 'auto', col: 0, label: '收货人' },
-        { target: 'receiverPhone', row: 'auto', col: 0, label: '收货电话' },
-        { target: 'receiverAddress', row: 'auto', col: 0, label: '收货地址' },
-      ],
-    },
-  ],
+  preprocessing: [],
   dataExtraction: {
-    mode: 'table',
-    headerRow: 0,
-    dataStartRow: 1,
-    dataEndRow: 'auto',
-    endMarkers: ['合计', '制单日期'],
+    mode: 'text',
+    linePatterns: [
+      {
+        pattern: '^\\d+\\S*?(ZBWP\\d+)(.+?)(?:件|包|桶|盒|瓶|袋|顶|码)(\\d+)\\s*$',
+        captures: [
+          { group: 1, target: 'skuCode' },
+          { group: 2, target: 'skuName' },
+          { group: 3, target: 'skuQuantity' },
+        ],
+      },
+      {
+        pattern: '收货人[：:]\\s*([^\\s收]+)',
+        captures: [{ group: 1, target: 'receiverName' }],
+      },
+      {
+        pattern: '收货电话[：:]\\s*(\\d+)',
+        captures: [{ group: 1, target: 'receiverPhone' }],
+      },
+      {
+        pattern: '收货地址[：:]\\s*(.+)',
+        captures: [{ group: 1, target: 'receiverAddress' }],
+      },
+    ],
   },
   fieldMapping: [
-    { target: 'skuCode', source: { type: 'column', index: 2 }, transform: [{ type: 'trim' }] },
-    { target: 'skuName', source: { type: 'column', index: 3 }, transform: [{ type: 'trim' }] },
-    { target: 'skuSpec', source: { type: 'column', index: 4 } },
-    { target: 'skuQuantity', source: { type: 'column', index: 6 }, transform: [{ type: 'toNumber' }] },
-    { target: 'receiverName', source: { type: 'footer', fieldIndex: 0 } },
-    { target: 'receiverPhone', source: { type: 'footer', fieldIndex: 1 } },
-    { target: 'receiverAddress', source: { type: 'footer', fieldIndex: 2 } },
+    { target: 'skuCode', source: { type: 'columnName', name: 'skuCode' }, transform: [{ type: 'trim' }] },
+    { target: 'skuName', source: { type: 'columnName', name: 'skuName' }, transform: [{ type: 'trim' }] },
+    { target: 'skuQuantity', source: { type: 'columnName', name: 'skuQuantity' }, transform: [{ type: 'toNumber' }] },
+    { target: 'receiverName', source: { type: 'columnName', name: 'receiverName' } },
+    { target: 'receiverPhone', source: { type: 'columnName', name: 'receiverPhone' } },
+    { target: 'receiverAddress', source: { type: 'columnName', name: 'receiverAddress' } },
     { target: 'externalCode', source: { type: 'fixed', value: 'PS2604210007' } },
   ],
   postprocessing: [
