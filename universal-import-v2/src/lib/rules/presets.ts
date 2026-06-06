@@ -47,7 +47,9 @@ export const liMingTunRule: RuleConfig = {
 export const huNanCangRule: RuleConfig = {
   fileType: 'excel',
   sheets: { type: 'active' },
-  preprocessing: [],
+  preprocessing: [
+    { type: 'skipRows', count: 1 }, // 跳过首行说明文字（①带有*的字段为必填项...）
+  ],
   dataExtraction: {
     mode: 'table',
     headerRow: 0,
@@ -110,15 +112,15 @@ export const diaoBoDanRule: RuleConfig = {
   dataExtraction: {
     mode: 'card',
     headerFields: [
-      { row: 1, col: 1, target: 'storeName' },
-      { row: 1, col: 3, target: 'receiverName' },
-      { row: 1, col: 5, target: 'receiverPhone' },
-      { row: 2, col: 1, target: 'receiverAddress' },
+      { row: 0, col: 1, target: 'storeName' },
+      { row: 0, col: 3, target: 'receiverName' },
+      { row: 0, col: 5, target: 'receiverPhone' },
+      { row: 1, col: 1, target: 'receiverAddress' },
     ],
     tableConfig: {
       mode: 'table',
-      headerRow: 3,
-      dataStartRow: 4,
+      headerRow: 2,
+      dataStartRow: 3,
       dataEndRow: 'auto',
     },
   },

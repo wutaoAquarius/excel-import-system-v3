@@ -95,7 +95,11 @@ function executePdfRule(pages: string[], rule: RuleConfig): WaybillRecord[] {
   // PDF: 将所有页面文本合并，按行分割作为rows
   const allText = pages.join('\n');
   const lines = allText.split('\n');
-  const rows: (string | null)[][] = lines.map((line) => [line]);
+  const rows: (string | null)[][] = lines.map((line) => {
+    // 按2个以上空白或制表符拆分，检测表格列结构
+    const cells = line.split(/\t|\s{2,}/).map((c) => c.trim()).filter((c) => c.length > 0);
+    return cells.length > 1 ? cells : [line];
+  });
 
   let processedRows = [...rows];
   let footerData: Record<string, string> = {};
@@ -172,11 +176,29 @@ function applyPreprocess(rows: (string | null)[][], step: PreprocessStep): Prepr
         : step.startRow;
       const footerData: Record<string, string> = {};
       for (const field of step.fields) {
-        const row = field.row === 'auto' ? startRow : field.row;
-        if (row < rows.length) {
-          const value = rows[row]?.[field.col];
-          if (value) {
-            footerData[field.target] = value.trim();
+        if (field.row === 'auto') {
+          // 从 startRow 向下搜索，按标签定位或取第一个非空值
+          for (let r = startRow; r < rows.length; r++) {
+            if (field.label && field.labelCol !== undefined) {
+              const labelCell = rows[r]?.[field.labelCol]?.trim() || '';
+              if (labelCell.includes(field.label)) {
+                const value = rows[r]?.[field.col];
+                if (value) footerData[field.target] = value.trim();
+                break;
+              }
+            } else {
+              const value = rows[r]?.[field.col];
+              if (value && value.trim()) {
+                footerData[field.target] = value.trim();
+                break;
+              }
+            }
+          }
+        } else {
+          const row = field.row;
+          if (row < rows.length) {
+            const value = rows[row]?.[field.col];
+            if (value) footerData[field.target] = value.trim();
           }
         }
       }
@@ -272,6 +294,8 @@ function extractTable(rows: (string | null)[][], config: TableExtraction): Extra
 
 function extractMatrix(rows: (string | null)[][], config: MatrixExtraction): ExtractedRow[] {
   const pivotHeaders = rows[config.pivotHeaderRow]?.slice(config.pivotStartCol) || [];
+  // 过滤掉非门店的汇总/余量列
+  const skipPatterns = ['结余', '合计', '库存', '余量'];
   const result: ExtractedRow[] = [];
 
   for (let i = config.dataStartRow; i < rows.length; i++) {
@@ -279,6 +303,10 @@ function extractMatrix(rows: (string | null)[][], config: MatrixExtraction): Ext
     if (!row || row.every((c) => !c || !c.trim())) continue;
 
     for (let p = 0; p < pivotHeaders.length; p++) {
+      const headerVal = pivotHeaders[p]?.trim();
+      // 跳过空列头或非门店汇总列
+      if (!headerVal || skipPatterns.some((pat) => headerVal.includes(pat))) continue;
+
       const colIdx = config.pivotStartCol + p;
       const value = row[colIdx]?.trim();
       if (!value || value === '0' || value === '') {
