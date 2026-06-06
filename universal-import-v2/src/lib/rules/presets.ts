@@ -12,11 +12,11 @@ export const liMingTunRule: RuleConfig = {
     { type: 'skipRows', count: 3 }, // 跳过标题+元信息行(Row1-3)
     {
       type: 'extractFooter',
-      startRow: 8, // Row9开始是footer(0-based=8)
+      startRow: 'afterData',
       fields: [
-        { target: 'receiverName', row: 8, col: 1, label: '收货人', labelCol: 0 },
-        { target: 'receiverPhone', row: 8, col: 4, label: '收货电话', labelCol: 3 },
-        { target: 'receiverAddress', row: 8, col: 13, label: '收货地址', labelCol: 12 },
+        { target: 'receiverName', row: 'auto', col: 1, label: '收货人', labelCol: 0 },
+        { target: 'receiverPhone', row: 'auto', col: 4, label: '收货电话', labelCol: 3 },
+        { target: 'receiverAddress', row: 'auto', col: 13, label: '收货地址', labelCol: 12 },
       ],
     },
   ],

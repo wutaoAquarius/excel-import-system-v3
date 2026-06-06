@@ -175,10 +175,11 @@ function applyPreprocess(rows: (string | null)[][], step: PreprocessStep): Prepr
         ? findDataEnd(rows)
         : step.startRow;
       const footerData: Record<string, string> = {};
+      // 搜索范围扩大：从 startRow-2 开始搜索，确保 label 在边界附近也能被找到
+      const searchStart = Math.max(0, startRow - 2);
       for (const field of step.fields) {
         if (field.row === 'auto') {
-          // 从 startRow 向下搜索，按标签定位或取第一个非空值
-          for (let r = startRow; r < rows.length; r++) {
+          for (let r = searchStart; r < rows.length; r++) {
             if (field.label && field.labelCol !== undefined) {
               const labelCell = rows[r]?.[field.labelCol]?.trim() || '';
               if (labelCell.includes(field.label)) {
