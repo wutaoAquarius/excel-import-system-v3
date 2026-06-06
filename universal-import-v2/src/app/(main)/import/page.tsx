@@ -1,15 +1,17 @@
 'use client';
 
 import React, { useState, useCallback, useRef } from 'react';
-import { Upload, Button, Card, Select, Space, message, Progress, Alert } from 'antd';
+import { Upload, Button, Card, Select, Space, message, Progress, Alert, Divider } from 'antd';
 import Link from 'next/link';
-import { InboxOutlined, RobotOutlined, ThunderboltOutlined, DownloadOutlined, SendOutlined } from '@ant-design/icons';
+import { InboxOutlined, RobotOutlined, ThunderboltOutlined, DownloadOutlined, SendOutlined, SaveOutlined } from '@ant-design/icons';
 import EditableTable from '@/components/EditableTable';
+import FieldMappingEditor from '@/components/FieldMappingEditor';
 import type { WaybillRecord } from '@/lib/rules';
+import type { RuleConfig } from '@/lib/rules/config';
 
 type Step = 'upload' | 'configure' | 'preview' | 'submitted';
 
-interface RuleItem { id: string; name: string; config: unknown; fileType: string; }
+interface RuleItem { id: string; name: string; config: RuleConfig; fileType: string; }
 
 export default function ImportPage() {
   const [step, setStep] = useState<Step>('upload');
@@ -23,6 +25,8 @@ export default function ImportPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [submitResult, setSubmitResult] = useState<{ successCount: number; failCount: number } | null>(null);
   const [parseFailed, setParseFailed] = useState(false);
+  const [ruleDirty, setRuleDirty] = useState(false);
+  const [savingRule, setSavingRule] = useState(false);
   const validateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadRules = useCallback(async () => {
@@ -93,6 +97,34 @@ export default function ImportPage() {
       }
     } catch { message.error('AI规则生成失败'); } finally { setAiLoading(false); }
   }, [fileData, loadRules]);
+
+  // 规则字段映射变更
+  const handleRuleConfigChange = useCallback((newConfig: RuleConfig) => {
+    if (!selectedRuleId) return;
+    setRulesList(prev => prev.map(r =>
+      r.id === selectedRuleId ? { ...r, config: newConfig } : r
+    ));
+    setRuleDirty(true);
+  }, [selectedRuleId]);
+
+  // 保存规则到数据库
+  const handleSaveRule = useCallback(async () => {
+    if (!selectedRuleId) return;
+    const rule = rulesList.find(r => r.id === selectedRuleId);
+    if (!rule) return;
+    setSavingRule(true);
+    try {
+      const res = await fetch(`/api/rules/${selectedRuleId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: rule.name, fileType: rule.fileType, config: rule.config }),
+      });
+      const json = await res.json();
+      if (json.error) { message.error(json.error); return; }
+      setRuleDirty(false);
+      message.success('规则已保存');
+    } catch { message.error('保存失败'); } finally { setSavingRule(false); }
+  }, [selectedRuleId, rulesList]);
 
   const handleSubmit = useCallback(async () => {
     if (Object.keys(errors).length > 0) { message.error('请先修正错误数据'); return; }
@@ -177,7 +209,7 @@ export default function ImportPage() {
           <div className="flex gap-4 items-end">
             <div className="flex-1">
               <label className="block text-sm font-medium mb-1">选择解析规则</label>
-              <Select className="w-full" placeholder="选择已有规则" value={selectedRuleId} onChange={setSelectedRuleId} options={rulesList.map((r) => ({ label: r.name, value: r.id }))} allowClear />
+              <Select className="w-full" placeholder="选择已有规则" value={selectedRuleId} onChange={(val) => { setSelectedRuleId(val); setRuleDirty(false); }} options={rulesList.map((r) => ({ label: r.name, value: r.id }))} allowClear />
             </div>
             <Button type="primary" icon={<ThunderboltOutlined />} onClick={handleParse} disabled={!selectedRuleId} loading={loading}>执行解析</Button>
             <Button icon={<RobotOutlined />} onClick={handleAiGenerate} loading={aiLoading}>AI生成规则</Button>
@@ -200,6 +232,27 @@ export default function ImportPage() {
             />
           )}
           {loading && <Progress percent={progress} className="mt-4" strokeColor="#0fc6c2" />}
+          {/* 字段映射编辑器：选中规则后显示 */}
+          {selectedRuleId && rulesList.find(r => r.id === selectedRuleId) && (
+            <>
+              <Divider plain className="!mt-5 !mb-3" style={{ fontSize: 13 }}>
+                字段映射配置
+                {ruleDirty && <span className="text-orange-500 ml-2 text-xs">（已修改未保存）</span>}
+              </Divider>
+              <FieldMappingEditor
+                config={rulesList.find(r => r.id === selectedRuleId)!.config}
+                onChange={handleRuleConfigChange}
+                preview={fileData?.summary.preview}
+              />
+              {ruleDirty && (
+                <div className="mt-3 flex justify-end">
+                  <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveRule} loading={savingRule}>
+                    保存规则修改
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
           <Button type="link" className="mt-2 p-0" onClick={() => { setStep('upload'); setFileData(null); setParseFailed(false); }}>← 重新上传</Button>
         </Card>
       )}
