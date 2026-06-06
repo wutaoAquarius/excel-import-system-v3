@@ -1,0 +1,92 @@
+[
+  {
+    "storeName": "银泰",
+    "skuCode": "05010138",
+    "skuName": "100g欢乐牧场牛油火锅底料（2023新）",
+    "skuQuantity": 1
+  },
+  {
+    "storeName": "金银潭",
+    "skuCode": "SP03442",
+    "skuName": "穆林农场肥牛25kg",
+    "skuQuantity": 1
+  },
+  {
+    "storeName": "金银潭",
+    "skuCode": "07010693",
+    "skuName": "黑口贝8/10（10KG）",
+    "skuQuantity": 1
+  },
+  {
+    "storeName": "金桥",
+    "skuCode": "06030292",
+    "skuName": "雪花猪颈肉（肉青）10KG/箱",
+    "skuQuantity": 1
+  },
+  {
+    "storeName": "门店D",
+    "skuCode": "07010696",
+    "skuName": "金月湾粉丝黄金扇贝（100片）4KG",
+    "skuQuantity": 3
+  },
+  {
+    "storeName": "金桥",
+    "skuCode": "05010126",
+    "skuName": "28g欢乐牧场清汤(2.24kg)",
+    "skuQuantity": 2
+  },
+  {
+    "storeName": "金银潭",
+    "skuCode": "06030296",
+    "skuName": "牧原冻猪一级带皮五花",
+    "skuQuantity": 2
+  },
+  {
+    "storeName": "门店D",
+    "skuCode": "06030296",
+    "skuName": "牧原冻猪一级带皮五花",
+    "skuQuantity": 4
+  },
+  {
+    "storeName": "银泰",
+    "skuCode": "06040282",
+    "skuName": "（冷冻）爆汁盐酥鸡10kg（10袋*1kg）",
+    "skuQuantity": 3
+  },
+  {
+    "storeName": "银泰",
+    "skuCode": "04050198",
+    "skuName": "V亿蛋挞皮中号6kg",
+    "skuQuantity": 1
+  },
+  {
+    "storeName": "门店B",
+    "skuCode": "06050129",
+    "skuName": "德义杨羊肉串1箱*10包*30串",
+    "skuQuantity": 2
+  },
+  {
+    "storeName": "金银潭",
+    "skuCode": "05010026",
+    "skuName": "（常温）欢乐牧场菌汤（350袋）*1箱*350袋*14g",
+    "skuQuantity": 2
+  },
+  {
+    "storeName": "门店B",
+    "skuCode": "05010026",
+    "skuName": "（常温）欢乐牧场菌汤（350袋）*1箱*350袋*14g",
+    "skuQuantity": 4
+  },
+  {
+    "storeName": "银泰",
+    "skuCode": "C01457",
+    "skuName": "洋葱圈1箱10包*800克（鼎巴）",
+    "skuQuantity": 1
+  },
+  {
+    "storeName": "门店D",
+    "skuCode": "04050287",
+    "skuName": "奥尔良鸡肉罗马披萨320g*12",
+    "skuQuantity": 3
+  }
+]

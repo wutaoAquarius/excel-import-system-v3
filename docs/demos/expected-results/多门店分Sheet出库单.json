@@ -1,0 +1,23 @@
+[
+  { "storeName": "银泰店", "receiverName": "王店长", "receiverPhone": "13900001111", "receiverAddress": "汉口解放大道688号银泰百货B1层", "skuCode": "ZBWP0001", "skuName": "茶语柠听紫苏风味糖浆", "skuSpec": "750ml*6瓶/件", "skuQuantity": 3 },
+  { "storeName": "银泰店", "receiverName": "王店长", "receiverPhone": "13900001111", "receiverAddress": "汉口解放大道688号银泰百货B1层", "skuCode": "ZBWP0015", "skuName": "寨寨香肠片", "skuSpec": "2.5kg*6包/件", "skuQuantity": 5 },
+  { "storeName": "银泰店", "receiverName": "王店长", "receiverPhone": "13900001111", "receiverAddress": "汉口解放大道688号银泰百货B1层", "skuCode": "ZBWP0025", "skuName": "麻辣折耳根脆", "skuSpec": "1.5kg*6包/件", "skuQuantity": 2 },
+  { "storeName": "银泰店", "receiverName": "王店长", "receiverPhone": "13900001111", "receiverAddress": "汉口解放大道688号银泰百货B1层", "skuCode": "ZBWP0028", "skuName": "Q寨寨五常香米", "skuSpec": "25kg/包", "skuQuantity": 10 },
+  { "storeName": "银泰店", "receiverName": "王店长", "receiverPhone": "13900001111", "receiverAddress": "汉口解放大道688号银泰百货B1层", "skuCode": "ZBWP0030", "skuName": "精品五花肉卷", "skuSpec": "10kg/件", "skuQuantity": 4 },
+  { "storeName": "银泰店", "receiverName": "王店长", "receiverPhone": "13900001111", "receiverAddress": "汉口解放大道688号银泰百货B1层", "skuCode": "ZBWP0035", "skuName": "雪花肥牛卷", "skuSpec": "15kg/件", "skuQuantity": 3 },
+  { "storeName": "银泰店", "receiverName": "王店长", "receiverPhone": "13900001111", "receiverAddress": "汉口解放大道688号银泰百货B1层", "skuCode": "ZBWP0040", "skuName": "韩式泡菜", "skuSpec": "5kg*4包/件", "skuQuantity": 2 },
+  { "storeName": "金桥店", "receiverName": "李经理", "receiverPhone": "13800002222", "receiverAddress": "武汉江岸区金桥大道38号永旺梦乐城2F", "skuCode": "ZBWP0001", "skuName": "茶语柠听紫苏风味糖浆", "skuSpec": "750ml*6瓶/件", "skuQuantity": 3 },
+  { "storeName": "金桥店", "receiverName": "李经理", "receiverPhone": "13800002222", "receiverAddress": "武汉江岸区金桥大道38号永旺梦乐城2F", "skuCode": "ZBWP0015", "skuName": "寨寨香肠片", "skuSpec": "2.5kg*6包/件", "skuQuantity": 5 },
+  { "storeName": "金桥店", "receiverName": "李经理", "receiverPhone": "13800002222", "receiverAddress": "武汉江岸区金桥大道38号永旺梦乐城2F", "skuCode": "ZBWP0025", "skuName": "麻辣折耳根脆", "skuSpec": "1.5kg*6包/件", "skuQuantity": 2 },
+  { "storeName": "金桥店", "receiverName": "李经理", "receiverPhone": "13800002222", "receiverAddress": "武汉江岸区金桥大道38号永旺梦乐城2F", "skuCode": "ZBWP0028", "skuName": "Q寨寨五常香米", "skuSpec": "25kg/包", "skuQuantity": 10 },
+  { "storeName": "金桥店", "receiverName": "李经理", "receiverPhone": "13800002222", "receiverAddress": "武汉江岸区金桥大道38号永旺梦乐城2F", "skuCode": "ZBWP0030", "skuName": "精品五花肉卷", "skuSpec": "10kg/件", "skuQuantity": 4 },
+  { "storeName": "金桥店", "receiverName": "李经理", "receiverPhone": "13800002222", "receiverAddress": "武汉江岸区金桥大道38号永旺梦乐城2F", "skuCode": "ZBWP0035", "skuName": "雪花肥牛卷", "skuSpec": "15kg/件", "skuQuantity": 3 },
+  { "storeName": "金桥店", "receiverName": "李经理", "receiverPhone": "13800002222", "receiverAddress": "武汉江岸区金桥大道38号永旺梦乐城2F", "skuCode": "ZBWP0040", "skuName": "韩式泡菜", "skuSpec": "5kg*4包/件", "skuQuantity": 2 },
+  { "storeName": "金银潭店", "receiverName": "张主管", "receiverPhone": "13700003333", "receiverAddress": "武汉东西湖区金银潭大道1号永旺梦乐城3F", "skuCode": "ZBWP0001", "skuName": "茶语柠听紫苏风味糖浆", "skuSpec": "750ml*6瓶/件", "skuQuantity": 3 },
+  { "storeName": "金银潭店", "receiverName": "张主管", "receiverPhone": "13700003333", "receiverAddress": "武汉东西湖区金银潭大道1号永旺梦乐城3F", "skuCode": "ZBWP0015", "skuName": "寨寨香肠片", "skuSpec": "2.5kg*6包/件", "skuQuantity": 5 },
+  { "storeName": "金银潭店", "receiverName": "张主管", "receiverPhone": "13700003333", "receiverAddress": "武汉东西湖区金银潭大道1号永旺梦乐城3F", "skuCode": "ZBWP0025", "skuName": "麻辣折耳根脆", "skuSpec": "1.5kg*6包/件", "skuQuantity": 2 },
+  { "storeName": "金银潭店", "receiverName": "张主管", "receiverPhone": "13700003333", "receiverAddress": "武汉东西湖区金银潭大道1号永旺梦乐城3F", "skuCode": "ZBWP0028", "skuName": "Q寨寨五常香米", "skuSpec": "25kg/包", "skuQuantity": 10 },
+  { "storeName": "金银潭店", "receiverName": "张主管", "receiverPhone": "13700003333", "receiverAddress": "武汉东西湖区金银潭大道1号永旺梦乐城3F", "skuCode": "ZBWP0030", "skuName": "精品五花肉卷", "skuSpec": "10kg/件", "skuQuantity": 4 },
+  { "storeName": "金银潭店", "receiverName": "张主管", "receiverPhone": "13700003333", "receiverAddress": "武汉东西湖区金银潭大道1号永旺梦乐城3F", "skuCode": "ZBWP0035", "skuName": "雪花肥牛卷", "skuSpec": "15kg/件", "skuQuantity": 3 },
+  { "storeName": "金银潭店", "receiverName": "张主管", "receiverPhone": "13700003333", "receiverAddress": "武汉东西湖区金银潭大道1号永旺梦乐城3F", "skuCode": "ZBWP0040", "skuName": "韩式泡菜", "skuSpec": "5kg*4包/件", "skuQuantity": 2 }
+]
