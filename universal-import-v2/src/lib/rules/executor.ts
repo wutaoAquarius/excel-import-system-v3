@@ -1,603 +1,277 @@
-/**
- * 规则引擎核心执行器
- * 根据RuleConfig解析RawFileData为WaybillRecord[]
+﻿/**
+ * 统一规则引擎执行器
+ * 根据 RuleConfig 从 RawFileData 提取 WaybillRecord[]
  */
 import type { RawFileData, RawSheetData } from '@/lib/parsers';
-import type { WaybillRecord, WaybillField } from './types';
-import type {
-  RuleConfig,
-  PreprocessStep,
-  DataExtractionConfig,
-  FieldMapping,
-  FieldSource,
-  TransformStep,
-  PostprocessStep,
-  TableExtraction,
-  MatrixExtraction,
-  GroupedExtraction,
-  CardExtraction,
-  TextExtraction,
-  CardSplitStep,
-} from './config';
+import type { RuleConfig, HeaderField, DetailConfig, DetailColumn } from './config';
+import type { WaybillRecord } from './types';
 
 export function executeRule(rawData: RawFileData, rule: RuleConfig): WaybillRecord[] {
-  if (rawData.type === 'excel' && rawData.sheets) {
-    return executeExcelRule(rawData.sheets, rule);
+  const sheets = rule.multi_sheet ? rawData.sheets : rawData.sheets.slice(0, 1);
+  const allResults: WaybillRecord[] = [];
+
+  for (const sheet of sheets) {
+    const results = processSheet(sheet, rule);
+    allResults.push(...results);
   }
-  if (rawData.type === 'pdf' && rawData.pages) {
-    return executePdfRule(rawData.pages, rule);
-  }
-  throw new Error(`不支持的文件类型: ${rawData.type}`);
+  return allResults;
 }
 
-function executeExcelRule(sheets: RawSheetData[], rule: RuleConfig): WaybillRecord[] {
-  // 选择要处理的sheets
-  const selectedSheets = selectSheets(sheets, rule.sheets);
-  const allRecords: WaybillRecord[] = [];
+function processSheet(sheet: RawSheetData, rule: RuleConfig): WaybillRecord[] {
+  const rows = sheet.rows;
+  if (rows.length === 0) return [];
 
-  for (const sheet of selectedSheets) {
-    let rows = [...sheet.rows];
-    let footerData: Record<string, string> = {};
-
-    // 预处理
-    for (const step of rule.preprocessing) {
-      const result = applyPreprocess(rows, step);
-      rows = result.rows;
-      if (result.footerData) {
-        footerData = { ...footerData, ...result.footerData };
-      }
-    }
-
-    // cardSplit 多卡片拆分
-    const cardSplitStep = rule.preprocessing.find(
-      (s): s is CardSplitStep => s.type === 'cardSplit'
-    );
-    if (cardSplitStep && rule.dataExtraction.mode === 'card') {
-      // 按 __boundary__ 标记将 rows 拆分为多个子数组
-      const cards: (string | null)[][][] = [];
-      let current: (string | null)[][] = [];
-      for (const row of rows) {
-        if (row[0] === '__boundary__') {
-          if (current.length > 0) cards.push(current);
-          current = [];
-        } else {
-          current.push(row);
-        }
-      }
-      if (current.length > 0) cards.push(current);
-
-      for (const cardRows of cards) {
-        const extracted = extractCard(cardRows, rule.dataExtraction);
-        const records = extracted.map((row) =>
-          mapFields(row, rule.fieldMapping, footerData)
-        );
-        allRecords.push(...records);
-      }
-      continue;
-    }
-
-    // 数据提取
-    const extracted = extractData(rows, rule.dataExtraction);
-
-    // 字段映射
-    const records = extracted.map((row) =>
-      mapFields(row, rule.fieldMapping, footerData)
-    );
-
-    allRecords.push(...records);
+  // 卡片分隔模式：优先处理
+  if (rule.detail.block_separator) {
+    return processBlocks(rows, sheet.name, rule);
   }
 
-  // 后处理
-  return applyPostprocess(allRecords, rule.postprocessing);
-}
+  // 提取 header 字段
+  const headerData = extractHeader(rows, sheet.name, rule.header);
 
-function executePdfRule(pages: string[], rule: RuleConfig): WaybillRecord[] {
-  // PDF: 将所有页面文本合并，按行分割作为rows
-  const allText = pages.join('\n');
-  const lines = allText.split('\n');
-  const rows: (string | null)[][] = lines.map((line) => {
-    // 按2个以上空白或制表符拆分，检测表格列结构
-    const cells = line.split(/\t|\s{2,}/).map((c) => c.trim()).filter((c) => c.length > 0);
-    return cells.length > 1 ? cells : [line];
-  });
+  // 定位明细数据行
+  const dataRows = getDetailRows(rows, rule.detail);
 
-  let processedRows = [...rows];
-  let footerData: Record<string, string> = {};
-
-  for (const step of rule.preprocessing) {
-    const result = applyPreprocess(processedRows, step);
-    processedRows = result.rows;
-    if (result.footerData) {
-      footerData = { ...footerData, ...result.footerData };
-    }
+  // 矩阵转置
+  if (rule.detail.pivot) {
+    return executePivot(rows, dataRows, headerData, rule.detail);
   }
 
-  // PDF 多单拆分：有 cardSplit 时按 __boundary__ 标记分段处理
-  const cardSplitStep = rule.preprocessing.find(
-    (s): s is CardSplitStep => s.type === 'cardSplit'
-  );
-  if (cardSplitStep) {
-    const segments: (string | null)[][][] = [];
-    let current: (string | null)[][] = [];
-    for (const row of processedRows) {
-      if (row[0] === '__boundary__') {
-        if (current.length > 0) segments.push(current);
-        current = [];
-      } else {
-        current.push(row);
-      }
-    }
-    if (current.length > 0) segments.push(current);
+  // 普通列提取
+  const records = extractColumns(dataRows, rule.detail.columns);
 
-    const allRecords: WaybillRecord[] = [];
-    for (const segRows of segments) {
-      const extracted = extractData(segRows, rule.dataExtraction);
-      const records = extracted.map((row) =>
-        mapFields(row, rule.fieldMapping, footerData)
-      );
-      allRecords.push(...records);
-    }
-    return applyPostprocess(allRecords, rule.postprocessing);
+  // 分组聚合
+  if (rule.detail.group_by) {
+    return groupRecords(records, headerData, rule.detail.group_by);
   }
 
-  const extracted = extractData(processedRows, rule.dataExtraction);
-  const records = extracted.map((row) =>
-    mapFields(row, rule.fieldMapping, footerData)
-  );
-
-  return applyPostprocess(records, rule.postprocessing);
+  // 普通模式
+  return records.map((r) => ({ ...headerData, ...r }) as unknown as WaybillRecord);
 }
 
-// ===== Sheet选择 =====
-function selectSheets(sheets: RawSheetData[], selector?: import('./types').SheetSelector): RawSheetData[] {
-  if (!selector) return sheets;
-  switch (selector.type) {
-    case 'all': return sheets;
-    case 'active': return sheets.length > 0 ? [sheets[0]] : [];
-    case 'byIndex': return selector.indices.map((i) => sheets[i]).filter(Boolean);
-    case 'byName': return sheets.filter((s) => selector.names.includes(s.name));
-  }
-}
-
-// ===== 预处理 =====
-interface PreprocessResult {
-  rows: (string | null)[][];
-  footerData?: Record<string, string>;
-}
-
-function applyPreprocess(rows: (string | null)[][], step: PreprocessStep): PreprocessResult {
-  switch (step.type) {
-    case 'skipRows':
-      return { rows: rows.slice(step.count) };
-
-    case 'extractFooter': {
-      const startRow = step.startRow === 'afterData'
-        ? findDataEnd(rows)
-        : step.startRow;
-      const footerData: Record<string, string> = {};
-      // 搜索范围扩大：从 startRow-2 开始搜索，确保 label 在边界附近也能被找到
-      const searchStart = Math.max(0, startRow - 2);
-      for (const field of step.fields) {
-        if (field.row === 'auto') {
-          for (let r = searchStart; r < rows.length; r++) {
-            if (field.label && field.labelCol !== undefined) {
-              const labelCell = rows[r]?.[field.labelCol]?.trim() || '';
-              if (labelCell.includes(field.label)) {
-                const value = rows[r]?.[field.col];
-                if (value) footerData[field.target] = value.trim();
-                break;
-              }
-            } else {
-              const value = rows[r]?.[field.col];
-              if (value && value.trim()) {
-                footerData[field.target] = value.trim();
-                break;
-              }
-            }
-          }
-        } else {
-          const row = field.row;
-          if (row < rows.length) {
-            const value = rows[row]?.[field.col];
-            if (value) footerData[field.target] = value.trim();
-          }
-        }
-      }
-      // 移除footer行
-      return { rows: rows.slice(0, startRow), footerData };
-    }
-
-    case 'cardSplit': {
-      // 在每行第一列打上 __boundary__ 标记，供 executeExcelRule/executePdfRule 使用
-      const marked = rows.map((row) => {
-        const cell = row[0] ?? '';
-        let isBoundary = false;
-        if (step.matchMode === 'startsWith') {
-          isBoundary = cell.startsWith(step.boundary);
-        } else if (step.matchMode === 'contains') {
-          isBoundary = cell.includes(step.boundary);
-        } else if (step.matchMode === 'regex') {
-          isBoundary = new RegExp(step.boundary).test(cell);
-        }
-        if (isBoundary) {
-          return ['__boundary__', ...row.slice(1)];
-        }
-        return row;
-      });
-      return { rows: marked };
-    }
-
-    case 'filterEmptyRows': {
-      const minNonEmpty = step.minNonEmpty ?? 1;
-      const filtered = rows.filter((row) =>
-        row.filter((cell) => cell && cell.trim()).length >= minNonEmpty
-      );
-      return { rows: filtered };
-    }
-  }
-}
-
-function findDataEnd(rows: (string | null)[][]): number {
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const nonEmpty = rows[i].filter((c) => c && c.trim()).length;
-    if (nonEmpty >= 3) return i + 1;
-  }
-  return rows.length;
-}
-
-// ===== 数据提取 =====
-type ExtractedRow = Record<string, string | null>;
-
-function extractData(rows: (string | null)[][], config: DataExtractionConfig): ExtractedRow[] {
-  switch (config.mode) {
-    case 'table': return extractTable(rows, config);
-    case 'matrix': return extractMatrix(rows, config);
-    case 'grouped': return extractGrouped(rows, config);
-    case 'card': return extractCard(rows, config);
-    case 'text': return extractText(rows, config);
-    default: return [];
-  }
-}
-
-function extractTable(rows: (string | null)[][], config: TableExtraction): ExtractedRow[] {
-  const headers = rows[config.headerRow]?.map((h) => h?.trim() || '') || [];
-  let endRow = rows.length;
-
-  if (config.dataEndRow === 'auto') {
-    for (let i = config.dataStartRow; i < rows.length; i++) {
-      const firstCell = rows[i]?.[0]?.trim() || '';
-      if (config.endMarkers?.some((m) => firstCell.includes(m))) {
-        endRow = i;
+// ===== Header 提取 =====
+function extractHeader(
+  rows: (string | null)[][],
+  sheetName: string,
+  headerFields: HeaderField[]
+): Record<string, string | number | null> {
+  const data: Record<string, string | number | null> = {};
+  for (const field of headerFields) {
+    let value: string | null = null;
+    switch (field.method) {
+      case 'cell':
+        value = rows[field.row ?? 0]?.[field.col ?? 0] ?? null;
         break;
-      }
-      if (rows[i].every((c) => !c || !c.trim())) {
-        endRow = i;
+      case 'sheet_name':
+        value = sheetName;
         break;
-      }
+      case 'keyword':
+        value = findByKeyword(rows, field);
+        break;
     }
-  } else if (typeof config.dataEndRow === 'number') {
-    endRow = config.dataEndRow;
+    data[field.field] = applyPostProcess(value, field.post_process);
   }
-
-  const result: ExtractedRow[] = [];
-  for (let i = config.dataStartRow; i < endRow; i++) {
-    const row = rows[i];
-    if (!row || row.every((c) => !c || !c.trim())) continue;
-    const record: ExtractedRow = {};
-    headers.forEach((h, idx) => {
-      record[`col_${idx}`] = row[idx] ?? null;
-      if (h) record[`name_${h}`] = row[idx] ?? null;
-    });
-    result.push(record);
-  }
-  return result;
+  return data;
 }
 
-function extractMatrix(rows: (string | null)[][], config: MatrixExtraction): ExtractedRow[] {
-  const pivotHeaders = rows[config.pivotHeaderRow]?.slice(config.pivotStartCol) || [];
-  // 过滤掉非门店的汇总/余量列
-  const skipPatterns = ['结余', '合计', '库存', '余量'];
-  const result: ExtractedRow[] = [];
+function findByKeyword(rows: (string | null)[][], field: HeaderField): string | null {
+  const kw = field.keyword ?? '';
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    for (let c = 0; c < row.length; c++) {
+      const cell = row[c];
+      if (!cell || !cell.includes(kw)) continue;
 
-  for (let i = config.dataStartRow; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row || row.every((c) => !c || !c.trim())) continue;
-
-    for (let p = 0; p < pivotHeaders.length; p++) {
-      const headerVal = pivotHeaders[p]?.trim();
-      // 跳过空列头或非门店汇总列
-      if (!headerVal || skipPatterns.some((pat) => headerVal.includes(pat))) continue;
-
-      const colIdx = config.pivotStartCol + p;
-      const value = row[colIdx]?.trim();
-      if (!value || value === '0' || value === '') {
-        if (config.skipZeroValues) continue;
-        if (!value) continue;
+      if (field.direction === 'below') {
+        // 有 separator 时先尝试同单元格 split
+        if (field.separator) {
+          const parts = cell.split(field.separator);
+          const last = parts[parts.length - 1].trim();
+          if (last) return last;
+        }
+        // fallback: 下一行同列
+        return rows[r + 1]?.[c] ?? null;
       }
-
-      const record: ExtractedRow = {};
-      // 固定列（SKU信息）
-      for (let c = 0; c < config.pivotStartCol; c++) {
-        record[`col_${c}`] = row[c] ?? null;
+      // direction=right（默认）
+      if (field.separator) {
+        const parts = cell.split(field.separator);
+        const last = parts[parts.length - 1].trim();
+        if (last) return last;
       }
-      // 转置列头作为目标字段
-      record[`pivot_header`] = pivotHeaders[p] ?? null;
-      record[`pivot_value`] = value;
-      // 兼容columnName source类型
-      record[`name_pivot_header`] = pivotHeaders[p] ?? null;
-      record[`name_pivot_value`] = value;
-      result.push(record);
+      // fallback: 右一格
+      return row[c + 1] ?? null;
     }
   }
-  return result;
+  return null;
 }
 
-function extractGrouped(rows: (string | null)[][], config: GroupedExtraction): ExtractedRow[] {
-  const headers = rows[config.headerRow]?.map((h) => h?.trim() || '') || [];
+// ===== 明细行定位 =====
+function getDetailRows(rows: (string | null)[][], detail: DetailConfig): (string | null)[][] {
+  const startRow = detail.start_row ?? 0;
+  const result: (string | null)[][] = [];
 
-  // 第一遍：按 groupByCol 分组，空值行继承上一行 groupKey
-  type GroupEntry = { key: string; rowIndices: number[] };
-  const groups: GroupEntry[] = [];
-  const groupIndexMap = new Map<string, number>();
-  let lastKey = '';
-
-  for (let i = config.dataStartRow; i < rows.length; i++) {
+  for (let i = startRow; i < rows.length; i++) {
     const row = rows[i];
-    if (!row || row.every((c) => !c || !c.trim())) continue;
-    const cellVal = row[config.groupByCol]?.trim() || '';
-    const key = cellVal || lastKey;
-    if (!key) continue;
-    if (cellVal) lastKey = cellVal;
-
-    if (!groupIndexMap.has(key)) {
-      groupIndexMap.set(key, groups.length);
-      groups.push({ key, rowIndices: [] });
-    }
-    groups[groupIndexMap.get(key)!].rowIndices.push(i);
-  }
-
-  // 第二遍：组内提取，sharedFields 取组内第一行，广播到所有行
-  const result: ExtractedRow[] = [];
-
-  for (const group of groups) {
-    // 收集组内所有行的基础字段
-    const groupRows: ExtractedRow[] = group.rowIndices.map((i) => {
-      const row = rows[i];
-      const record: ExtractedRow = {};
-      headers.forEach((h, idx) => {
-        record[`col_${idx}`] = row[idx] ?? null;
-        if (h) record[`name_${h}`] = row[idx] ?? null;
-      });
-      return record;
-    });
-
-    // 从第一行解析 sharedFields（用 mapFields 替代逻辑，直接读取源列）
-    const sharedValues: ExtractedRow = {};
-    for (const mapping of config.sharedFields) {
-      const firstRow = groupRows[0];
-      if (!firstRow) continue;
-      const src = mapping.source;
-      let val: string | null = null;
-      if (src.type === 'column') {
-        val = firstRow[`col_${src.index}`] ?? null;
-      } else if (src.type === 'columnName') {
-        val = firstRow[`name_${src.name}`] ?? null;
-      } else if (src.type === 'fixed') {
-        val = src.value;
+    if (detail.end_condition) {
+      if (detail.end_condition === 'blank_row') {
+        if (row.every((cell) => !cell || cell.trim() === '')) break;
+      } else if (detail.end_condition.startsWith('next_keyword:')) {
+        const keyword = detail.end_condition.replace('next_keyword:', '');
+        if (row.some((cell) => cell && cell.includes(keyword))) break;
       }
-      if (val !== null) {
-        sharedValues[`shared_${mapping.target}`] = val;
-      }
-    }
-
-    // 将 sharedValues 广播到组内所有行
-    for (const record of groupRows) {
-      for (const [k, v] of Object.entries(sharedValues)) {
-        record[k] = v;
-      }
-      result.push(record);
-    }
-  }
-  return result;
-}
-
-function extractCard(rows: (string | null)[][], config: CardExtraction): ExtractedRow[] {
-  // 找到所有卡片的起始行（通过preprocessing cardSplit已标记）
-  // 这里假设rows已经是单个卡片的内容
-  const result: ExtractedRow[] = [];
-  const cardHeaderData: Record<string, string> = {};
-
-  for (const field of config.headerFields) {
-    if (field.row < rows.length) {
-      const value = rows[field.row]?.[field.col];
-      if (value) cardHeaderData[field.target] = value.trim();
-    }
-  }
-
-  const tableRows = extractTable(rows, config.tableConfig);
-  for (const row of tableRows) {
-    // 合并卡片头信息
-    for (const [key, val] of Object.entries(cardHeaderData)) {
-      row[`card_${key}`] = val;
     }
     result.push(row);
   }
   return result;
 }
 
-function extractText(rows: (string | null)[][], config: TextExtraction): ExtractedRow[] {
-  // 将 rows 转为文本行数组
-  const lines = rows.map((row) => row[0] ?? '');
-  const fullText = lines.join('\n');
+// ===== 列提取 =====
+function extractColumns(
+  dataRows: (string | null)[][],
+  columns: DetailColumn[]
+): Record<string, string | number | null>[] {
+  const records: Record<string, string | number | null>[] = [];
+  for (const row of dataRows) {
+    const record: Record<string, string | number | null> = {};
+    let hasData = false;
+    for (const col of columns) {
+      const raw = row[col.col] ?? null;
+      const value = applyPostProcess(raw, col.post_process);
+      if (value !== null && value !== '') hasData = true;
+      record[col.field] = value;
+    }
+    if (hasData) records.push(record);
+  }
+  return records;
+}
 
-  const result: ExtractedRow[] = [];
+// ===== 矩阵转置 =====
+function executePivot(
+  allRows: (string | null)[][],
+  dataRows: (string | null)[][],
+  headerData: Record<string, string | number | null>,
+  detail: DetailConfig
+): WaybillRecord[] {
+  const pivot = detail.pivot!;
+  const headerRow = allRows[0] ?? [];
+  const results: WaybillRecord[] = [];
 
-  if (config.separator) {
-    // 有分隔符：按 separator 拆分记录块，每块一条记录
-    const blocks = fullText.split(config.separator).map((b) => b.trim()).filter((b) => b.length > 0);
-    for (const block of blocks) {
-      const record: ExtractedRow = {};
-      const blockLines = block.split('\n');
-      for (const lp of config.linePatterns) {
-        const re = new RegExp(lp.pattern);
-        for (const line of blockLines) {
-          const match = line.match(re);
-          if (match) {
-            for (const cap of lp.captures) {
-              const val = match[cap.group] ?? null;
-              if (val !== null) record[`name_${cap.target}`] = val.trim();
-            }
-            break;
-          }
+  const startCol = pivot.pivot_start_col;
+  const endCol = pivot.pivot_end_col ?? headerRow.length - 1;
+  const excludeCols = new Set(pivot.exclude_cols ?? []);
+  const excludePatterns = pivot.exclude_patterns ?? [];
+
+  // 构建有效 pivot 列
+  const pivotCols: { index: number; name: string }[] = [];
+  for (let c = startCol; c <= endCol; c++) {
+    if (excludeCols.has(c)) continue;
+    const colName = headerRow[c] ?? '';
+    if (excludePatterns.some((p) => colName.includes(p))) continue;
+    if (colName.trim()) pivotCols.push({ index: c, name: colName.trim() });
+  }
+
+  for (const row of dataRows) {
+    for (const pc of pivotCols) {
+      const cellValue = row[pc.index];
+      if (pivot.skip_zero_values) {
+        if (!cellValue || cellValue === '0' || cellValue.trim() === '') continue;
+      }
+      const record: Record<string, string | number | null> = { ...headerData };
+      record[pivot.pivot_target_field] = pc.name;
+      record[pivot.value_field] = toNumber(cellValue);
+      for (const col of detail.columns) {
+        record[col.field] = applyPostProcess(row[col.col], col.post_process);
+      }
+      results.push(record as unknown as WaybillRecord);
+    }
+  }
+  return results;
+}
+
+// ===== 卡片分隔 =====
+function processBlocks(
+  rows: (string | null)[][],
+  sheetName: string,
+  rule: RuleConfig
+): WaybillRecord[] {
+  const separator = rule.detail.block_separator!;
+  const blocks: (string | null)[][][] = [];
+  let current: (string | null)[][] = [];
+
+  for (const row of rows) {
+    const joined = row.filter(Boolean).join(' ');
+    if (joined.includes(separator)) {
+      if (current.length > 0) blocks.push(current);
+      current = [];
+    } else {
+      current.push(row);
+    }
+  }
+  if (current.length > 0) blocks.push(current);
+
+  const results: WaybillRecord[] = [];
+  for (const block of blocks) {
+    const blockHeader = extractHeader(block, sheetName, rule.header);
+    const dataRows = getDetailRows(block, rule.detail);
+    const records = extractColumns(dataRows, rule.detail.columns);
+    for (const r of records) {
+      results.push({ ...blockHeader, ...r } as unknown as WaybillRecord);
+    }
+  }
+  return results;
+}
+
+// ===== 分组聚合 =====
+function groupRecords(
+  records: Record<string, string | number | null>[],
+  headerData: Record<string, string | number | null>,
+  groupByField: string
+): WaybillRecord[] {
+  const groups = new Map<string, Record<string, string | number | null>[]>();
+  for (const r of records) {
+    const key = String(r[groupByField] ?? 'unknown');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(r);
+  }
+
+  const results: WaybillRecord[] = [];
+  for (const [, groupRows] of groups) {
+    const shared = { ...headerData };
+    const first = groupRows[0];
+    if (first) {
+      for (const key of ['storeName', 'receiverName', 'receiverPhone', 'receiverAddress', 'externalCode']) {
+        if (first[key] !== null && first[key] !== undefined) {
+          shared[key] = first[key];
         }
       }
-      if (Object.keys(record).length > 0) result.push(record);
     }
-  } else {
-    // 无分隔符：两轮匹配
-    // 第一轮：收集所有匹配，分为数据记录和全局字段
-    const dataRecords: ExtractedRow[] = [];
-    const globalFields: ExtractedRow = {};
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const record: ExtractedRow = {};
-      let matched = false;
-      for (const lp of config.linePatterns) {
-        const re = new RegExp(lp.pattern);
-        const match = line.match(re);
-        if (match) {
-          matched = true;
-          for (const cap of lp.captures) {
-            const val = match[cap.group] ?? null;
-            if (val !== null) record[`name_${cap.target}`] = val.trim();
-          }
-          break; // 每行只匹配第一个pattern
-        }
-      }
-      if (!matched || Object.keys(record).length === 0) continue;
-      // 含有 skuCode 或 skuName 的是数据记录，否则是全局字段
-      if (record['name_skuCode'] || record['name_skuName']) {
-        dataRecords.push(record);
-      } else {
-        Object.assign(globalFields, record);
-      }
-    }
-
-    // 将全局字段广播到所有数据记录
-    for (const rec of dataRecords) {
-      for (const [k, v] of Object.entries(globalFields)) {
-        if (!rec[k]) rec[k] = v;
-      }
-      result.push(rec);
+    for (const r of groupRows) {
+      results.push({ ...shared, ...r } as unknown as WaybillRecord);
     }
   }
-  return result;
+  return results;
 }
 
-// ===== 字段映射 =====
-function mapFields(
-  row: ExtractedRow,
-  mappings: FieldMapping[],
-  footerData: Record<string, string>
-): WaybillRecord {
-  const record: Partial<WaybillRecord> = {};
-
-  for (const mapping of mappings) {
-    let value = resolveSource(row, mapping.source, footerData);
-    if (value && mapping.transform) {
-      value = applyTransforms(value, mapping.transform);
-    }
-    if (value !== null && value !== undefined && value !== '') {
-      if (mapping.target === 'skuQuantity') {
-        (record as Record<string, unknown>)[mapping.target] = parseFloat(value) || 0;
-      } else {
-        (record as Record<string, unknown>)[mapping.target] = value;
-      }
+// ===== 后处理工具 =====
+function applyPostProcess(value: string | null | undefined, process: string): string | number | null {
+  const str = (value ?? '').trim();
+  if (!process || process === 'keep') return str || null;
+  if (process === 'trim') return str || null;
+  if (process === 'convert_to_number') return toNumber(str);
+  if (process.startsWith('extract_code:')) {
+    const pattern = process.replace('extract_code:', '').trim();
+    try {
+      const match = str.match(new RegExp(pattern));
+      return match ? match[0] : str || null;
+    } catch {
+      return str || null;
     }
   }
-
-  return record as WaybillRecord;
+  return str || null;
 }
 
-function resolveSource(
-  row: ExtractedRow,
-  source: FieldSource,
-  footerData: Record<string, string>
-): string | null {
-  switch (source.type) {
-    case 'column':
-      return row[`col_${source.index}`] ?? null;
-    case 'columnName':
-      return row[`name_${source.name}`] ?? null;
-    case 'fixed':
-      return source.value;
-    case 'footer':
-      return Object.values(footerData)[source.fieldIndex] ?? null;
-    case 'cardHeader':
-      // 查找card_开头的字段
-      const cardKeys = Object.keys(row).filter((k) => k.startsWith('card_'));
-      return cardKeys[source.fieldIndex] ? row[cardKeys[source.fieldIndex]] : null;
-    case 'regex': {
-      const text = Object.values(row).join(' ');
-      const match = text.match(new RegExp(source.pattern));
-      return match?.[source.group] ?? null;
-    }
-    case 'concat':
-      return source.sources
-        .map((s) => resolveSource(row, s, footerData))
-        .filter(Boolean)
-        .join(source.separator ?? ' ');
-  }
-}
-
-function applyTransforms(value: string, transforms: TransformStep[]): string {
-  let result = value;
-  for (const t of transforms) {
-    switch (t.type) {
-      case 'trim': result = result.trim(); break;
-      case 'toNumber': result = String(parseFloat(result) || 0); break;
-      case 'replace': result = result.replace(new RegExp(t.pattern, 'g'), t.replacement); break;
-      case 'split': result = result.split(t.separator)[t.index] ?? result; break;
-      case 'prefix': result = t.value + result; break;
-      case 'suffix': result = result + t.value; break;
-      case 'regex': {
-        const m = result.match(new RegExp(t.pattern));
-        result = m?.[t.group] ?? result;
-        break;
-      }
-    }
-  }
-  return result;
-}
-
-// ===== 后处理 =====
-function applyPostprocess(records: WaybillRecord[], steps: PostprocessStep[]): WaybillRecord[] {
-  let result = records;
-  for (const step of steps) {
-    switch (step.type) {
-      case 'dedup': {
-        const seen = new Set<string>();
-        result = result.filter((r) => {
-          const key = String(r[step.by as keyof WaybillRecord] ?? '');
-          if (!key || seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-        break;
-      }
-      case 'filterEmpty':
-        result = result.filter((r) =>
-          step.requiredFields.every((f) => {
-            const val = r[f as keyof WaybillRecord];
-            return val !== undefined && val !== null && val !== '';
-          })
-        );
-        break;
-      case 'mergeRows':
-        // 简单实现：按groupBy合并mergeField
-        break;
-    }
-  }
-  return result;
+function toNumber(value: string | null | undefined): number {
+  if (!value) return 0;
+  const n = parseFloat(String(value).replace(/[^\d.\-]/g, ''));
+  return isNaN(n) ? 0 : n;
 }

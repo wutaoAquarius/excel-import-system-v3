@@ -1,138 +1,110 @@
-import { WaybillField, FooterField, SheetSelector } from './types';
+/**
+ * 统一规则配置 Schema
+ * 覆盖场景：平铺表格、头尾分离、矩阵转置、卡片分隔、分组聚合、PDF表格、多Sheet
+ */
 
-// ===== 预处理步骤 =====
-export type PreprocessStep =
-  | SkipRowsStep
-  | ExtractFooterStep
-  | CardSplitStep
-  | FilterEmptyRowsStep;
+// ===== 目标字段（英文 key，UI 层用 FIELD_LABELS 映射中文） =====
+export type TargetField =
+  | 'externalCode'    // 外部编码
+  | 'storeName'       // 收货门店
+  | 'receiverName'    // 收件人姓名
+  | 'receiverPhone'   // 收件人电话
+  | 'receiverAddress' // 收件人地址
+  | 'skuCode'         // SKU物品编码
+  | 'skuName'         // SKU物品名称
+  | 'skuQuantity'     // SKU发货数量
+  | 'skuSpec'         // SKU规格型号
+  | 'remark';         // 备注
 
-export interface SkipRowsStep {
-  type: 'skipRows';
-  count: number;  // 跳过前N行
+// ===== 后处理类型 =====
+// 'keep' | 'trim' | 'convert_to_number' | 'extract_code: 正则'
+export type PostProcess = string;
+
+// ===== 头部字段提取规则 =====
+export interface HeaderField {
+  field: TargetField;
+  method: 'keyword' | 'cell' | 'sheet_name';
+  keyword?: string;            // method=keyword 时的搜索关键词
+  direction?: 'right' | 'below';
+  separator?: string;          // 分隔符
+  row?: number;                // method=cell 时的行号(0-based)
+  col?: number;                // method=cell 时的列号(0-based)
+  post_process: PostProcess;
+  description?: string;        // AI生成的提取说明
 }
 
-export interface ExtractFooterStep {
-  type: 'extractFooter';
-  startRow: number | 'afterData';  // 从哪行开始是footer
-  fields: FooterField[];
+// ===== 矩阵转置配置 =====
+export interface PivotConfig {
+  pivot_start_col: number;
+  pivot_end_col?: number;
+  exclude_cols?: number[];
+  exclude_patterns?: string[];       // 按列头关键词排除
+  pivot_target_field: TargetField;   // 列头映射到哪个字段
+  value_field: TargetField;          // 格子值映射到哪个字段
+  skip_zero_values: boolean;
 }
 
-export interface CardSplitStep {
-  type: 'cardSplit';
-  boundary: string;           // 边界标识文本
-  matchMode: 'startsWith' | 'contains' | 'regex';
+// ===== 明细列映射 =====
+export interface DetailColumn {
+  field: TargetField | string;  // 标准字段或辅助字段(如"配送单号")
+  col: number;                  // 列号(0-based)
+  post_process: PostProcess;
+  description?: string;         // AI生成的提取说明
 }
 
-export interface FilterEmptyRowsStep {
-  type: 'filterEmptyRows';
-  minNonEmpty?: number;  // 至少N个非空单元格才保留
+// ===== 明细表格配置 =====
+export interface DetailConfig {
+  // Excel 通用
+  start_row?: number;          // 数据起始行号(0-based)
+  end_condition?: string;      // 'blank_row' | 'next_keyword:合计'
+
+  // PDF 专用
+  method?: 'pdf_table';
+  table_keyword?: string;      // 定位表头行的关键词
+  table_bbox?: [number, number, number, number]; // [x0, y0, x1, y1]
+
+  // 卡片分隔
+  block_separator?: string;    // 卡片边界标识文本
+
+  // 分组聚合
+  group_by?: string;           // 按哪个字段分组
+
+  // 矩阵转置
+  pivot?: PivotConfig;
+
+  // 列映射
+  columns: DetailColumn[];
 }
-
-// ===== 数据提取模式 =====
-export type DataExtractionConfig =
-  | TableExtraction
-  | MatrixExtraction
-  | GroupedExtraction
-  | TextExtraction
-  | CardExtraction;
-
-export interface TableExtraction {
-  mode: 'table';
-  headerRow: number;      // 表头行号(0-based)
-  dataStartRow: number;   // 数据开始行
-  dataEndRow?: number | 'auto';  // 数据结束行，auto=遇到空行或合计行停止
-  endMarkers?: string[];  // 结束标志（如"合计"）
-}
-
-export interface MatrixExtraction {
-  mode: 'matrix';
-  headerRow: number;
-  dataStartRow: number;
-  pivotStartCol: number;    // 从哪列开始是转置列（门店列）
-  pivotHeaderRow: number;   // 转置列头所在行
-  pivotTargetField: WaybillField;  // 转置列头映射到哪个字段（如storeName）
-  valueField: WaybillField;        // 格子值映射到哪个字段（如skuQuantity）
-  skipZeroValues?: boolean;        // 跳过0值
-}
-
-export interface GroupedExtraction {
-  mode: 'grouped';
-  headerRow: number;
-  dataStartRow: number;
-  groupByCol: number;       // 按哪列分组（如配送单号列）
-  sharedFields: FieldMapping[];  // 组内共享字段（如收货人信息）
-}
-
-export interface TextExtraction {
-  mode: 'text';
-  separator?: string;       // 记录分隔符（如"━━━"）
-  linePatterns: LinePattern[];  // 每行匹配规则
-}
-
-export interface LinePattern {
-  pattern: string;          // 正则表达式
-  captures: { group: number; target: WaybillField }[];
-}
-
-export interface CardExtraction {
-  mode: 'card';
-  headerFields: CardHeaderField[];  // 卡片头部字段提取
-  tableConfig: TableExtraction;     // 卡片内表格配置
-}
-
-export interface CardHeaderField {
-  row: number;             // 卡片内相对行号
-  col: number;
-  target: WaybillField;
-  labelCol?: number;       // 标签所在列（用于验证）
-  label?: string;
-}
-
-// ===== 字段映射 =====
-export interface FieldMapping {
-  target: WaybillField;
-  source: FieldSource;
-  transform?: TransformStep[];
-  confidence?: number;     // AI生成时的置信度 0-1
-}
-
-export type FieldSource =
-  | { type: 'column'; index: number }            // 按列索引
-  | { type: 'columnName'; name: string }         // 按列名
-  | { type: 'fixed'; value: string }             // 固定值
-  | { type: 'footer'; fieldIndex: number }       // 来自footer提取
-  | { type: 'cardHeader'; fieldIndex: number }   // 来自卡片头
-  | { type: 'regex'; pattern: string; group: number }  // 正则提取
-  | { type: 'concat'; sources: FieldSource[]; separator?: string }; // 拼接
-
-// ===== 转换步骤 =====
-export type TransformStep =
-  | { type: 'trim' }
-  | { type: 'toNumber' }
-  | { type: 'replace'; pattern: string; replacement: string }
-  | { type: 'split'; separator: string; index: number }
-  | { type: 'prefix'; value: string }
-  | { type: 'suffix'; value: string }
-  | { type: 'regex'; pattern: string; group: number };
-
-// ===== 后处理步骤 =====
-export type PostprocessStep =
-  | { type: 'dedup'; by: WaybillField }
-  | { type: 'filterEmpty'; requiredFields: WaybillField[] }
-  | { type: 'mergeRows'; groupBy: WaybillField; mergeField: WaybillField; separator: string };
 
 // ===== 完整规则配置 =====
 export interface RuleConfig {
-  fileType: 'excel' | 'pdf' | 'word';
-  sheets?: SheetSelector;
-  preprocessing: PreprocessStep[];
-  dataExtraction: DataExtractionConfig;
-  fieldMapping: FieldMapping[];
-  postprocessing: PostprocessStep[];
+  file_type: 'excel' | 'pdf';
+  multi_sheet: boolean;
+  sheet_name_source?: 'sheet_name' | 'cell' | 'keyword' | null;
+  header: HeaderField[];
+  detail: DetailConfig;
   metadata?: {
     generatedBy?: 'ai' | 'manual';
-    confidence?: number;
     description?: string;
   };
 }
+
+// ===== 前端字段中英映射 =====
+export const FIELD_LABELS: Record<TargetField, string> = {
+  externalCode: '外部编码',
+  storeName: '收货门店',
+  receiverName: '收件人姓名',
+  receiverPhone: '收件人电话',
+  receiverAddress: '收件人地址',
+  skuCode: 'SKU物品编码',
+  skuName: 'SKU物品名称',
+  skuQuantity: 'SKU发货数量',
+  skuSpec: 'SKU规格型号',
+  remark: '备注',
+};
+
+export const TARGET_FIELDS: TargetField[] = [
+  'externalCode', 'storeName',
+  'receiverName', 'receiverPhone', 'receiverAddress',
+  'skuCode', 'skuName', 'skuQuantity', 'skuSpec', 'remark',
+];
