@@ -5,7 +5,7 @@ import { Upload, Button, Card, Select, Space, message, Progress, Alert, Divider 
 import Link from 'next/link';
 import { InboxOutlined, RobotOutlined, ThunderboltOutlined, DownloadOutlined, SendOutlined, SaveOutlined } from '@ant-design/icons';
 import EditableTable from '@/components/EditableTable';
-import FieldMappingEditor from '@/components/FieldMappingEditor';
+import RuleConfigEditor from '@/components/RuleConfigEditor';
 import type { WaybillRecord } from '@/lib/rules';
 import type { RuleConfig } from '@/lib/rules/config';
 
@@ -193,10 +193,10 @@ export default function ImportPage() {
       {/* Step 1: Upload */}
       {step === 'upload' && (
         <Card title="上传文件" className="shadow-sm">
-          <Upload.Dragger accept=".xlsx,.xls,.pdf,.docx" beforeUpload={handleUpload} showUploadList={false}>
+          <Upload.Dragger accept=".xlsx,.xls,.pdf" beforeUpload={handleUpload} showUploadList={false}>
             <p className="text-4xl text-[#0fc6c2]"><InboxOutlined /></p>
             <p className="text-base mt-2">点击或拖拽文件到此区域上传</p>
-            <p className="text-gray-400 text-sm">支持 Excel(.xlsx/.xls)、PDF、Word(.docx)</p>
+            <p className="text-gray-400 text-sm">支持 Excel(.xlsx/.xls)、PDF</p>
           </Upload.Dragger>
           {loading && <Progress percent={progress} className="mt-4" strokeColor="#0fc6c2" />}
         </Card>
@@ -239,7 +239,7 @@ export default function ImportPage() {
                 字段映射配置
                 {ruleDirty && <span className="text-orange-500 ml-2 text-xs">（已修改未保存）</span>}
               </Divider>
-              <FieldMappingEditor
+              <RuleConfigEditor
                 config={rulesList.find(r => r.id === selectedRuleId)!.config}
                 onChange={handleRuleConfigChange}
                 preview={fileData?.summary.preview}
