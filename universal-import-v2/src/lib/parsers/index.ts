@@ -1,6 +1,6 @@
 /**
  * 统一文件解析接口
- * 将Excel/PDF/Word文件解析为统一的原始数据结构
+ * 将 Excel/PDF 文件解析为统一的 sheets[].rows[][] 结构
  */
 
 // 原始文件数据（解析后、规则执行前）
@@ -10,10 +10,8 @@ export interface RawSheetData {
 }
 
 export interface RawFileData {
-  type: 'excel' | 'pdf' | 'word';
-  sheets?: RawSheetData[];   // Excel
-  pages?: string[];          // PDF
-  text?: string;             // Word
+  type: 'excel' | 'pdf';
+  sheets: RawSheetData[];
 }
 
 export { parseExcel } from './excel-parser';
@@ -39,11 +37,7 @@ export async function parseFile(
       const { parsePDF } = await import('./pdf-parser');
       return parsePDF(buf);
     }
-    case 'docx': {
-      const { parseWord } = await import('./word-parser');
-      return parseWord(buf);
-    }
     default:
-      throw new Error(`不支持的文件格式: .${ext}`);
+      throw new Error(`不支持的文件格式: .${ext}，仅支持 Excel(.xlsx/.xls) 和 PDF`);
   }
 }
